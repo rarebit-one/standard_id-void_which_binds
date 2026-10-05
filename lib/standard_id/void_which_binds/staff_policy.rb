@@ -25,6 +25,9 @@ module StandardId
     class StaffPolicy
       MESSAGE = "Staff accounts must sign in with the organisation's Void-Which-Binds broker"
 
+      # The predicate given to staff_policy (nil: the configured one is used).
+      attr_reader :staff_predicate
+
       def initialize(staff_predicate: nil, fallback: nil)
         @staff_predicate = staff_predicate
         @fallback = fallback

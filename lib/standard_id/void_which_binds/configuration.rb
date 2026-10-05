@@ -148,10 +148,15 @@ module StandardId
         def endpoints
           issuer = Configuration.issuer
           configured = [Configuration.authorization_endpoint, Configuration.token_endpoint]
-          return configured if configured.all?
-
-          doc = discovery(issuer)
-          list = [configured[0] || doc["authorization_endpoint"], configured[1] || doc["token_endpoint"]]
+          # Configured endpoints are held to the issuer's origin too: the token
+          # endpoint receives the client secret.
+          list =
+            if configured.all?
+              configured
+            else
+              doc = discovery(issuer)
+              [configured[0] || doc["authorization_endpoint"], configured[1] || doc["token_endpoint"]]
+            end
           list.each do |endpoint|
             raise ConfigurationError, "endpoint #{endpoint.inspect} is not on #{issuer}" unless Discovery.endpoint_on_issuer?(endpoint, issuer)
           end

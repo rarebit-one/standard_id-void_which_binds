@@ -29,7 +29,8 @@ RSpec.describe "standard_id-void_which_binds registration" do
   end
 
   it "mounts the SET endpoint" do
-    expect(StandardId::VoidWhichBinds::Engine.routes.recognize_path("/events", method: :post))
-      .to include(controller: "standard_id/void_which_binds/events", action: "create")
+    route = StandardId::VoidWhichBinds::Engine.routes.routes.find { |r| r.path.spec.to_s.start_with?("/events") }
+    expect(route.verb).to eq("POST")
+    expect(route.app.app).to eq(StandardId::VoidWhichBinds::EventsEndpoint)
   end
 end

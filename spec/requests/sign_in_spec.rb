@@ -35,6 +35,12 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
       expect(start_sign_in["client_id"]).to eq(Vwb::CLIENT_ID)
     end
 
+    it "holds configured endpoints to the issuer's origin (the token endpoint gets the client secret)" do
+      configure_void_which_binds!(void_which_binds_token_endpoint: "https://evil.example/oidc/token")
+
+      expect { post "/login", params: { connection: "void_which_binds" } }.to raise_error(StandardId::InvalidRequestError, /not on/)
+    end
+
     it "refuses a discovery document for another issuer" do
       configure_void_which_binds!(void_which_binds_authorization_endpoint: nil, void_which_binds_token_endpoint: nil)
       document = JSON.parse(StandardId::VoidWhichBinds::Discovery.render("https://evil.example", "https://evil.example/a", "https://evil.example/t"))

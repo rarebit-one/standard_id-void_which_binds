@@ -39,7 +39,7 @@ Every field lives in the `social` scope. A field the initializer does not assign
 | `void_which_binds_org` | `VOID_WHICH_BINDS_ORG` | Required. The org id, `ed25519:<64 hex>` |
 | `void_which_binds_jwks_pins` | `VOID_WHICH_BINDS_JWKS_PINS` | Required. RFC 7638 thumbprints of moneta's `assert` key, as an Array or a comma-separated String |
 | `void_which_binds_jwks` | `VOID_WHICH_BINDS_JWKS` | Optional JWKS inline. Otherwise it is fetched from `issuer/.well-known/jwks.json` |
-| `void_which_binds_authorization_endpoint`, `void_which_binds_token_endpoint` | (same names) | Optional. Otherwise read from discovery, whose `issuer` must equal the configured one |
+| `void_which_binds_authorization_endpoint`, `void_which_binds_token_endpoint` | (same names) | Optional. Otherwise read from discovery, whose `issuer` must equal the configured one. Either way both must be on the issuer's origin |
 | `void_which_binds_require_for_staff` | `VOID_WHICH_BINDS_REQUIRE_FOR_STAFF` | Default `true`. Enforces the staff policy and the staff lock |
 | `void_which_binds_staff_predicate` | (none, it is a callable) | `->(account) { account.staff? }` |
 
@@ -55,7 +55,7 @@ StandardId.configure do |c|
 end
 ```
 
-standard_id 0.45 consults the policy before any session or token exists. That covers every flow, including each refresh, which is checked against the original sign-in's method. A staff account may sign in only with `auth_method: :social` and provider `void_which_binds`. When an `account-disabled` SET is applied to a staff account, the account is also locked (`lock!`, if it includes `StandardId::AccountLocking`). The lock stays until someone unlocks it. Without a predicate, the policy raises and fails closed.
+standard_id 0.45 consults the policy before any session or token exists. That covers every flow, including each refresh, which is checked against the original sign-in's method. A staff account may sign in only with `auth_method: :social` and provider `void_which_binds`. When an `account-disabled` SET is applied to a staff account, the account is also locked (`lock!`, if it includes `StandardId::AccountLocking`). The lock stays until someone unlocks it. If a staff lock is configured but the account class does not include `StandardId::AccountLocking`, the app refuses to boot. If it somehow runs anyway, the revocations still commit and the missing lock is logged and reported to `Rails.error`. Without a predicate, the policy raises and fails closed.
 
 ## ⚠️ `trusted_for_linking?` is true, and must stay limited to an org's own IdP
 

@@ -38,11 +38,19 @@ module StandardId
       config.after_initialize do
         StandardId::VoidWhichBinds::Jose.assert_strict_json!
         StandardId::VoidWhichBinds::Engine.subscribe_session_created!
+        StandardId::VoidWhichBinds::Engine.verify_staff_lock!
       end
 
       @subscribed = false
 
       class << self
+        # A staff lock the account class cannot perform is refused at boot
+        # rather than discovered at the first roster removal.
+        def verify_staff_lock!
+          error = StandardId::VoidWhichBinds::Receiver.staff_lock_configuration_error
+          raise StandardId::VoidWhichBinds::ConfigurationError, error if error
+        end
+
         # Records the login_iat of every session created from a verified
         # void_which_binds ID token (and refuses it under the watermark).
         def subscribe_session_created!

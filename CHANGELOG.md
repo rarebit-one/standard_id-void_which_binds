@@ -19,11 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   README's warning). Requires standard_id 0.45.
 - **`StandardId::VoidWhichBinds.staff_policy`**: a `login_method_policy` that
   admits staff accounts only through `void_which_binds`, gated by
-  `void_which_binds_require_for_staff` (default `true`).
+  `void_which_binds_require_for_staff` (default `true`). A staff lock the
+  account class cannot perform (no `StandardId::AccountLocking`) is refused at
+  boot.
 - **SET receiver** at `POST /auth/void_which_binds/events` (RFC 8935). It
   verifies the SET with void-which-binds-go's `secevent.Verify` rules, answers
   with `secevent.Response`'s codes, deduplicates the `jti`, and applies the
-  event by watermark in one transaction before the `202`.
+  event by watermark in one transaction before the `202`. It is a bare Rack
+  endpoint that reads at most 16 KiB + 1 of the body, also for a chunked
+  request with no Content-Length.
   - A session-revoked SET revokes sessions with `login_iat <= toe` and records
     the per-subject revocation watermark (#135), even for unknown subjects.
   - An account-disabled SET applies when `toe >= last_login_iat`. It disables

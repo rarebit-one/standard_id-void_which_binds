@@ -29,7 +29,7 @@ lib/standard_id/void_which_binds/
   staff_policy.rb    # login_method_policy for staff
   engine.rb          # Rails engine: route, RFC 9207 iss capture, subscriber
   testing.rb         # test-only token/SET minting for host apps
-app/controllers/standard_id/void_which_binds/events_controller.rb   # POST /events
+lib/standard_id/void_which_binds/events_endpoint.rb               # POST /events (bare Rack endpoint)
 app/models/standard_id/void_which_binds/                            # Subject, Login, ReceivedEvent
 db/migrate/                                                         # the three tables
 lib/generators/standard_id/void_which_binds/install/                # install generator

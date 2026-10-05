@@ -5,5 +5,5 @@
 # to config/routes.rb), so moneta's SET push endpoint is
 # POST /auth/void_which_binds/events.
 StandardId::VoidWhichBinds::Engine.routes.draw do
-  post "events", to: "events#create", as: :events
+  post "events", to: StandardId::VoidWhichBinds::EventsEndpoint, as: :events
 end

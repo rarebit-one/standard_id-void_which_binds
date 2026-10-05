@@ -105,6 +105,27 @@ RSpec.describe "POST /auth/void_which_binds/events (RFC 8935 SET push)", type: :
       expect(StandardId::VoidWhichBinds::ReceivedEvent.last.outcome).to eq("applied")
     end
 
+    it "still revokes, and reports instead of calling Active Record's lock!, when the account class lacks AccountLocking" do
+      sign_in_with_void_which_binds(iat: now - 100)
+      session = browser_session_for
+      account = Account.find(session.account_id)
+      account.update!(staff: true)
+      plain = Class.new(ApplicationRecord) do
+        self.table_name = "accounts"
+        def self.name = "PlainAccount"
+      end
+      allow(StandardId).to receive(:account_class).and_return(plain)
+      allow(Rails.error).to receive(:report)
+
+      push_set(mint_set(event: :account_disabled, toe: now - 50))
+
+      expect(response).to have_http_status(:accepted)
+      expect(session.reload.revoked_at).to be_present
+      expect(account.reload).not_to be_locked
+      expect(Rails.error).to have_received(:report)
+        .with(an_instance_of(StandardId::VoidWhichBinds::ConfigurationError), hash_including(handled: true))
+    end
+
     it "does not lock an account the staff predicate does not match" do
       sign_in_with_void_which_binds(iat: now - 100)
 
@@ -183,6 +204,30 @@ RSpec.describe "POST /auth/void_which_binds/events (RFC 8935 SET push)", type: :
 
       expect(error_body["err"]).to eq("invalid_request")
       expect(StandardId::VoidWhichBinds::Subject.count).to eq(0)
+    end
+
+    it "reads at most 16 KiB + 1 of a body that has no Content-Length (chunked)" do
+      input = Class.new(StringIO) do
+        attr_reader :bytes_read
+
+        def read(length = nil, outbuf = nil)
+          data = super
+          @bytes_read = @bytes_read.to_i + data.to_s.bytesize
+          data
+        end
+      end.new("a" * 1_000_000)
+      env = Rack::MockRequest.env_for("http://www.example.com/auth/void_which_binds/events", method: "POST", input: input,
+                                                                                         "CONTENT_TYPE" => StandardId::VoidWhichBinds::SecurityEvent::CONTENT_TYPE,
+                                                                                         "HTTP_TRANSFER_ENCODING" => "chunked")
+      env.delete("CONTENT_LENGTH")
+
+      # Through the host's whole middleware stack and router, not just the endpoint.
+      status, headers, body = Rails.application.call(env)
+
+      expect(status).to eq(400)
+      expect(headers["content-type"]).to include("application/json")
+      expect(JSON.parse(body.each.to_a.join)).to eq("err" => "invalid_request", "description" => "the body is over 16384 bytes")
+      expect(input.bytes_read).to eq(StandardId::VoidWhichBinds::Jose::MAX_TOKEN_LEN + 1)
     end
 
     it "answers the wrong Content-Type with 400 invalid_request" do

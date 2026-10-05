@@ -128,17 +128,59 @@ module StandardId
         StandardId::SocialIdentity.where(provider: PROVIDER, subject: sub).distinct.pluck(:account_id)
       end
 
+      # Locks a staff account through StandardId::AccountLocking's
+      # `lock!(reason:)`. Every Active Record model also has the unrelated
+      # pessimistic-locking `lock!`, so the capability is checked by the
+      # concern, never by respond_to?. An account class without the concern
+      # cannot be locked: the revocations still commit (they are what ends the
+      # person's access, and failing them would make every retry a 500), and
+      # the gap is logged and reported here and refused at boot
+      # (Receiver.staff_lock_configuration_error).
       def lock_staff_account(account_id)
-        return unless Configuration.require_for_staff?
-
-        predicate = Configuration.staff_predicate
-        return unless predicate.respond_to?(:call)
+        predicate = staff_lock_predicate
+        return if predicate.nil?
 
         account = StandardId.account_class.find_by(id: account_id)
-        return if account.nil? || !account.respond_to?(:lock!)
-        return unless predicate.call(account)
+        return if account.nil? || !predicate.call(account)
+
+        unless account_locking?(account.class)
+          report_lock_unsupported(account.class)
+          return
+        end
 
         account.lock!(reason: "#{REVOCATION_REASON_PREFIX}account_disabled")
+      end
+
+      # The staff predicate the lock applies, or nil when the staff lock is
+      # off: the configured one, else the one the installed staff_policy holds.
+      def staff_lock_predicate
+        return nil unless Configuration.require_for_staff?
+
+        predicate = Configuration.staff_predicate
+        policy = StandardId.config.login_method_policy
+        predicate ||= policy.staff_predicate if policy.is_a?(StaffPolicy)
+        predicate.respond_to?(:call) ? predicate : nil
+      end
+
+      def account_locking?(klass)
+        klass.is_a?(Class) && klass <= StandardId::AccountLocking
+      end
+
+      # Why the staff lock cannot work with this app's account class, or nil.
+      def staff_lock_configuration_error
+        return nil if staff_lock_predicate.nil?
+
+        klass = StandardId.account_class
+        return nil if account_locking?(klass)
+
+        "a staff lock is configured (void_which_binds_require_for_staff with a staff predicate) but " \
+          "#{klass.name} does not include StandardId::AccountLocking, so a roster removal cannot lock a staff account"
+      end
+
+      def report_lock_unsupported(klass)
+        message = "[StandardId::VoidWhichBinds] staff account not locked: #{klass.name} does not include StandardId::AccountLocking"
+        StandardId.logger&.error(message)
+        Rails.error.report(ConfigurationError.new(message), handled: true, source: "standard_id-void_which_binds")
       end
 
       def reason(set)
