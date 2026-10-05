@@ -2,7 +2,6 @@
 
 require "json"
 require "net/http"
-require "openssl"
 require "uri"
 
 module StandardId
@@ -11,18 +10,17 @@ module StandardId
     # ADR-0023: OpenID Connect authorization code + PKCE S256 + nonce, and an
     # Ed25519 (EdDSA) ID token verified only under PINNED key thumbprints.
     #
-    # Web flow only. standard_id's login controller generates the state and
-    # the nonce and keeps both in the browser's encrypted state cookie; this
-    # provider derives the PKCE verifier from that nonce under the app's
-    # secret_key_base, so the verifier never leaves the server and no extra
-    # storage is needed. The callback's RFC 9207 `iss` is captured before the
-    # provider runs (VoidWhichBinds::CallbackIssuerCheck); a flow that cannot
-    # check it (the native/API callback, which also has no server-held nonce)
-    # is refused.
+    # Web flow only. standard_id (0.46+) generates the state, the nonce and,
+    # because supports_pkce? is true, a fresh PKCE verifier for every sign-in,
+    # and keeps all three in the browser's encrypted pending-requests cookie;
+    # only the S256 challenge leaves the server. At the web callback core
+    # passes the stored verifier (`code_verifier:`) and the callback's RFC 9207
+    # `iss` (`callback_iss:`). The native/API callback never passes a verifier
+    # (it has no server-held flow state), so it is refused, and core's API
+    # social login grant refuses a PKCE provider before it starts.
     class VoidWhichBinds < Base
       PROVIDER_NAME = "void_which_binds"
       DEFAULT_SCOPE = "openid email"
-      PKCE_KEY_PURPOSE = "standard_id-void_which_binds/pkce-verifier/v1"
 
       class << self
         def provider_name
@@ -37,6 +35,13 @@ module StandardId
 
         def default_scope
           DEFAULT_SCOPE
+        end
+
+        # Core-managed PKCE (standard_id 0.46): core generates and stores the
+        # verifier, sends its S256 challenge to authorization_url, and hands
+        # it back to get_user_info on the web callback only.
+        def supports_pkce?
+          true
         end
 
         # moneta verifies the address before it sets email_verified (a link
@@ -71,8 +76,11 @@ module StandardId
           }
         end
 
-        def authorization_url(state:, redirect_uri:, nonce: nil, **_options)
+        def authorization_url(state:, redirect_uri:, nonce: nil, code_challenge: nil, code_challenge_method: nil, **_options)
           raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in needs a server-generated nonce" if nonce.blank?
+          if code_challenge.blank? || code_challenge_method != StandardId::VoidWhichBinds::Pkce::METHOD
+            raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in needs a server-generated PKCE S256 challenge"
+          end
 
           authorization_endpoint, = StandardId::VoidWhichBinds::Broker.endpoints
           query = {
@@ -82,8 +90,8 @@ module StandardId
             state: state,
             scope: DEFAULT_SCOPE,
             nonce: nonce,
-            code_challenge: StandardId::VoidWhichBinds::Pkce.s256(code_verifier_for(nonce)),
-            code_challenge_method: StandardId::VoidWhichBinds::Pkce::METHOD
+            code_challenge: code_challenge,
+            code_challenge_method: code_challenge_method
           }
           "#{authorization_endpoint}?#{URI.encode_www_form(query)}"
         rescue StandardId::VoidWhichBinds::Error => e
@@ -94,19 +102,29 @@ module StandardId
         # ID token under the pinned keys exactly as void-which-binds-go's
         # oidc.VerifyIDToken does, refuses a token issued at or before the
         # subject's revocation watermark, and returns its claims.
-        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil, nonce: nil, **_options)
+        #
+        # `code_verifier` comes only from core's web callback (the verifier it
+        # stored with this flow's state); its absence means the native/API
+        # callback, which is refused. `callback_iss` is the callback's RFC 9207
+        # `iss`, checked before the code is exchanged.
+        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil, nonce: nil,
+                          callback_iss: nil, code_verifier: nil, **_options)
           if id_token.present? || access_token.present?
             raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in accepts only the authorization code flow"
           end
 
           rescue_to_oauth_error do
             raise StandardId::InvalidRequestError, "Void-Which-Binds authorization code is missing" if code.blank?
+            # Only core's web callback passes the server-held verifier.
+            if code_verifier.blank?
+              raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in is only available through the web callback"
+            end
             raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in needs a server-generated nonce" if nonce.blank?
             raise StandardId::InvalidRequestError, "Void-Which-Binds redirect_uri is missing" if redirect_uri.blank?
 
             with_refusals_as_oauth_errors do
-              check_callback_issuer!
-              token = exchange_code(code: code, redirect_uri: redirect_uri, nonce: nonce)
+              check_callback_issuer!(callback_iss)
+              token = exchange_code(code: code, redirect_uri: redirect_uri, code_verifier: code_verifier)
               claims = verify_id_token(token, nonce: nonce)
               StandardId::VoidWhichBinds::Logins.check!(iss: claims.iss, sub: claims.sub, login_iat: claims.iat)
               StandardId::VoidWhichBinds::Current.pending_login = { iss: claims.iss, sub: claims.sub, iat: claims.iat }
@@ -130,14 +148,6 @@ module StandardId
               leeway: StandardId::VoidWhichBinds::IdToken::MAX_LEEWAY
             ))
           end
-        end
-
-        # The PKCE verifier for the flow that sent `nonce`: 43 characters of
-        # base64url HMAC under a key derived from secret_key_base. Only this
-        # server can compute it, and only for a nonce it issued.
-        def code_verifier_for(nonce)
-          key = Rails.application.key_generator.generate_key(PKCE_KEY_PURPOSE, 32)
-          StandardId::VoidWhichBinds::Jose.encode(OpenSSL::HMAC.digest("SHA256", key, nonce.to_s))
         end
 
         private
@@ -165,18 +175,15 @@ module StandardId
         end
 
         # RFC 9207: the redirect carries moneta's `iss`, checked before the
-        # code is exchanged (mix-up defence).
-        def check_callback_issuer!
-          current = StandardId::VoidWhichBinds::Current
-          unless current.callback_checked
-            raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in is only available through the web callback"
-          end
-          return if current.callback_iss == StandardId::VoidWhichBinds::Configuration.issuer
+        # code is exchanged (mix-up defence). A missing one is refused: moneta
+        # always sends it.
+        def check_callback_issuer!(callback_iss)
+          return if callback_iss.is_a?(String) && callback_iss == StandardId::VoidWhichBinds::Configuration.issuer
 
           raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in refused (callback iss)"
         end
 
-        def exchange_code(code:, redirect_uri:, nonce:)
+        def exchange_code(code:, redirect_uri:, code_verifier:)
           creds = credentials
           raise StandardId::InvalidRequestError, "Void-Which-Binds client secret is not set" if creds[:client_secret].blank?
 
@@ -187,7 +194,7 @@ module StandardId
               grant_type: "authorization_code",
               code: code,
               redirect_uri: redirect_uri,
-              code_verifier: code_verifier_for(nonce)
+              code_verifier: code_verifier
             },
             basic_auth: basic_auth(creds[:client_id], creds[:client_secret])
           )

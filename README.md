@@ -2,7 +2,7 @@
 
 StandardId provider plugin for an organisation's Void-Which-Binds broker (moneta): OIDC login with pinned EdDSA ID tokens and Security Event Token deprovisioning, per [ADR-0023](https://github.com/rarebit-one/void-which-binds-go/blob/main/docs/adr/0023-broker-oidc-login-and-set-deprovisioning.md).
 
-- **Sign-in:** authorization code + PKCE S256 + nonce, `client_secret_basic`. The Ed25519 ID token is verified only under **pinned** key thumbprints, with the same rules as void-which-binds-go's `oidc.VerifyIDToken`. The callback's RFC 9207 `iss` is checked before the code is exchanged.
+- **Sign-in:** authorization code + PKCE S256 + nonce, `client_secret_basic`. The Ed25519 ID token is verified only under **pinned** key thumbprints, with the same rules as void-which-binds-go's `oidc.VerifyIDToken`. The callback's RFC 9207 `iss` is checked before the code is exchanged. Both the PKCE verifier and the callback `iss` come from standard_id core (0.46+); see [How the sign-in uses standard_id core](#how-the-sign-in-uses-standard_id-core).
 - **Linking:** by `sub` (standard_id's `(provider, sub)` row), or by email only when moneta says `email_verified: true`.
 - **Staff policy:** a `login_method_policy` that lets staff accounts in only through Void-Which-Binds.
 - **Deprovisioning:** `POST /auth/void_which_binds/events` receives moneta's RFC 8935 SET push. It verifies the SET (`secevent.Verify`), deduplicates the `jti`, and applies it by watermark. All of that commits in one transaction before the `202`.
@@ -26,6 +26,15 @@ mount StandardId::VoidWhichBinds::Engine => "/auth/void_which_binds"
 ```
 
 Register both URLs with moneta for **every** origin you serve: the redirect URI `<origin>/auth/callback/void_which_binds` and the SET push endpoint `<origin>/auth/void_which_binds/events`.
+
+### How the sign-in uses standard_id core
+
+The plugin needs standard_id 0.46 or later. It uses the core hook described in standard_id's README under "Callback `iss` and core-managed PKCE (0.46+)":
+
+- **PKCE.** The provider declares `supports_pkce? = true`. On every `/login?connection=void_which_binds`, core generates a fresh verifier and stores it with the state and nonce in the encrypted pending-requests cookie. The authorization URL carries only its S256 challenge. At the web callback, core hands the stored verifier back, and the provider sends it in the token request. A callback whose stored flow has no verifier is refused by core before the provider runs.
+- **Callback `iss` (RFC 9207).** Core passes the redirect's `iss` as `callback_iss:`. The provider refuses the callback unless it equals `void_which_binds_issuer`, including when it is missing, and it checks this before the code is exchanged.
+
+**Upgrading from a pre-0.46 build.** Earlier builds derived the verifier from the nonce and captured `iss` in their own `before_action`. A sign-in that was already in flight when you deploy has no stored verifier, so it fails once. The person signs in again.
 
 ## Configuration
 
@@ -87,7 +96,7 @@ The gem applies an event by watermark. Every comparison is between stamps from m
 
 ## Scope (v1)
 
-- **Web sign-in only.** The native/API callback (`/api/oauth/callback/void_which_binds`) is refused, because it can neither check `iss` nor hold a server-side nonce.
+- **Web sign-in only.** The native/API callback (`/api/oauth/callback/void_which_binds`) is refused, because it holds no server-side flow state: core never passes it a PKCE verifier (a client-supplied `code_verifier` is not forwarded) or a nonce. Core's API social login grant (`/authorize?connection=void_which_binds`) also refuses a PKCE provider before it starts.
 - **One issuer per app.** standard_id keys the account link by provider name.
 - An ID token without `email` cannot create an account, because standard_id needs an email address. moneta includes `email` with the `email` scope when its directory has one.
 

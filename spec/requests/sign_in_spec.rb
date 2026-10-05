@@ -19,10 +19,23 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
       )
       expect(params["state"]).to be_present
       expect(params["nonce"]).to be_present
-      verifier = StandardId::Providers::VoidWhichBinds.code_verifier_for(params["nonce"])
-      expect(verifier).to match(/\A[A-Za-z0-9_-]{43}\z/)
-      expect(params["code_challenge"]).to eq(StandardId::VoidWhichBinds::Pkce.s256(verifier))
+      expect(params["code_challenge"]).to match(/\A[A-Za-z0-9_-]{43}\z/)
       expect(params.keys).not_to include("code_verifier")
+    end
+
+    it "sends a fresh challenge for every sign-in (core-managed verifier)" do
+      expect(StandardId::Providers::VoidWhichBinds.supports_pkce?).to be(true)
+
+      expect(start_sign_in["code_challenge"]).not_to eq(start_sign_in["code_challenge"])
+    end
+
+    it "refuses to build an authorization URL without core's S256 challenge" do
+      provider = StandardId::Providers::VoidWhichBinds
+
+      expect { provider.authorization_url(state: "s", redirect_uri: Vwb::CALLBACK_URL, nonce: "n") }
+        .to raise_error(StandardId::InvalidRequestError, /PKCE S256 challenge/)
+      expect { provider.authorization_url(state: "s", redirect_uri: Vwb::CALLBACK_URL, nonce: "n", code_challenge: "c", code_challenge_method: "plain") }
+        .to raise_error(StandardId::InvalidRequestError, /PKCE S256 challenge/)
     end
 
     it "takes the endpoints from discovery when none is configured" do
@@ -102,19 +115,50 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
       expect(StandardId::BrowserSession.count).to eq(0)
     end
 
-    it "refuses a callback without moneta's RFC 9207 iss" do
+    it "sends core's stored verifier in the token request, matching the challenge it sent" do
+      sign_in_with_void_which_binds
+
+      expect(response).to redirect_to("/")
+      expect(a_request(:post, Vwb::TOKEN_ENDPOINT).with { |request|
+        Rack::Utils.parse_query(request.body)["code_verifier"].to_s.match?(/\A[A-Za-z0-9_-]{43}\z/)
+      }).to have_been_made.once
+    end
+
+    it "refuses a callback without moneta's RFC 9207 iss, before exchanging the code" do
       sign_in_with_void_which_binds(iss: nil)
 
       expect(response.location).to include("/login")
       expect(flash[:alert]).to include("callback iss")
       expect(StandardId::BrowserSession.count).to eq(0)
+      expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
     end
 
-    it "refuses a callback whose iss is another issuer" do
+    it "refuses a callback whose iss is another issuer, before exchanging the code" do
       sign_in_with_void_which_binds(iss: "https://other.example")
 
       expect(flash[:alert]).to include("callback iss")
       expect(Account.count).to eq(0)
+      expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
+    end
+
+    it "refuses a callback whose state was not started for this provider (no stored verifier)" do
+      params = start_sign_in
+      token = mint_id_token(nonce: params.fetch("nonce"))
+      stub_token_endpoint(id_token: token, challenge: params.fetch("code_challenge"))
+      # Drop the verifier core stored with the flow, as for a state issued by
+      # another provider's /login or before this provider opted in to PKCE.
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request).and_wrap_original do |original, *args|
+          original.call(*args)&.except("code_verifier")
+        end
+
+      get "/auth/callback/void_which_binds", params: { code: "the-code", state: params.fetch("state"), iss: Vwb::ISSUER },
+                                             headers: Vwb::BROWSER
+
+      expect(response.location).to include("/login")
+      expect(flash[:alert]).to include("Missing PKCE verifier")
+      expect(StandardId::BrowserSession.count).to eq(0)
+      expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
     end
 
     it "refuses an ID token signed by a key that is published but not pinned" do
@@ -155,6 +199,27 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
 
       expect(response).not_to have_http_status(:ok)
       expect(StandardId::SocialIdentity.count).to eq(0)
+    end
+
+    it "refuses the native/API callback's code flow, which never gets a server-held verifier" do
+      params = start_sign_in
+      stub_token_endpoint(id_token: mint_id_token(nonce: params.fetch("nonce")), challenge: params.fetch("code_challenge"))
+
+      post "/api/oauth/callback/void_which_binds",
+           params: { code: "the-code", iss: Vwb::ISSUER, nonce: params.fetch("nonce"), code_verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+                     redirect_uri: Vwb::CALLBACK_URL }
+
+      expect(response).not_to have_http_status(:ok)
+      expect(response.body).to include("only available through the web callback")
+      expect(StandardId::SocialIdentity.count).to eq(0)
+      expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
+    end
+
+    it "refuses get_user_info without a verifier, whatever else it is given" do
+      expect {
+        StandardId::Providers::VoidWhichBinds.get_user_info(code: "the-code", nonce: "n", redirect_uri: Vwb::CALLBACK_URL,
+                                                            callback_iss: Vwb::ISSUER)
+      }.to raise_error(StandardId::InvalidRequestError, /only available through the web callback/)
     end
   end
 
