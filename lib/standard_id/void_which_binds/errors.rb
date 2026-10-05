@@ -38,5 +38,11 @@ module StandardId
     # that is not a SHA-256 thumbprint, a discovered issuer that differs from
     # the configured one, ...).
     class ConfigurationError < Error; end
+
+    # moneta could not be reached (a timeout, a refused connection, a TLS
+    # failure). Like a misconfiguration it is the relying party's side of the
+    # exchange, never the SET's: the SET endpoint answers 500, which moneta
+    # retries.
+    class BrokerUnavailable < ConfigurationError; end
   end
 end

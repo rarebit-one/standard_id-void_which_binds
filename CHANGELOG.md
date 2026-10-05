@@ -35,12 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     staff account.
   - Session creation refuses an ID token with `iat <=` the watermark or the
     disabled `toe`.
+- **Failure attribution at the SET endpoint**: only a defect in the SET is
+  answered 400. An unusable inline or fetched JWKS, an unreachable broker, a
+  database error or any unexpected error on the receiving side is a 500, which
+  moneta retries instead of dead-lettering.
 - **Install generator** `standard_id:void_which_binds:install`: initializer,
   migration (subjects, logins and received-events tables) and the engine mount.
 - **`StandardId::VoidWhichBinds::Testing`**: mints ID tokens and SETs under
   test-only keys, for host request specs.
 - **Golden vectors**: every case of void-which-binds-go's
   `testvectors/vectors/oidc` (26 files) and `secevent` (25 files) is replayed.
-  Tokens are re-signed and re-minted byte for byte. The copies are pinned by
+  Tokens are re-signed and re-minted byte for byte. The copies are pinned to
+  void-which-binds-go **v0.24.0** (`3f97570`) by
   `spec/vectors/VOID_WHICH_BINDS_GO_REF` and checked by
   `scripts/check-vector-drift.sh` (CI job `vector-drift`).

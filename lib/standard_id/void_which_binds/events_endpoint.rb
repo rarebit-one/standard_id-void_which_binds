@@ -16,6 +16,10 @@ module StandardId
     # invalid_audience, else invalid_request); 500 for this app's own
     # misconfiguration or a database failure, which moneta retries.
     #
+    # Attribution: only a defect in the SET itself is answered 400. Every
+    # failure on this side (configuration, an unusable or unreachable key set,
+    # the database, an unexpected error) is a 500, which moneta retries.
+    #
     # A bare Rack endpoint, not an ActionController: a controller parses and
     # logs params before its action runs, and for a chunked request (no
     # Content-Length) Rails' Request#content_length reads the WHOLE body to
@@ -52,6 +56,13 @@ module StandardId
         # Nothing was committed (the event is applied in one transaction), so
         # moneta's retry of this 500 applies it in full.
         log(:error, "could not apply SET: #{e.class}: #{e.message}")
+        Rails.error.report(e, handled: true, source: "standard_id-void_which_binds")
+        [500, {}, []]
+      rescue StandardError => e
+        # Anything else (a host hook or predicate raising, a bug) is this
+        # app's failure, not the SET's: 500, retried, never a 400 that moneta
+        # would dead-letter.
+        log(:error, "failed to apply SET: #{e.class}: #{e.message}")
         Rails.error.report(e, handled: true, source: "standard_id-void_which_binds")
         [500, {}, []]
       end

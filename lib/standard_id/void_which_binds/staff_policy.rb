@@ -34,8 +34,14 @@ module StandardId
       end
 
       def call(account:, auth_method:, provider:, request: nil, flow: nil)
-        if Configuration.require_for_staff? && staff?(account) && !void_which_binds?(auth_method, provider)
-          raise StandardId::LoginMethodDenied, MESSAGE
+        # A staff account is decided here, and only here: it is admitted by
+        # void_which_binds and refused any other way. The fallback is never
+        # consulted for it, so a fallback that refuses social logins cannot
+        # lock staff out of the one method they are allowed.
+        if Configuration.require_for_staff? && staff?(account)
+          raise StandardId::LoginMethodDenied, MESSAGE unless void_which_binds?(auth_method, provider)
+
+          return true
         end
         return true if @fallback.nil?
 

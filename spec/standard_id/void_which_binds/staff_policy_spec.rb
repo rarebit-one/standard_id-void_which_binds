@@ -48,6 +48,25 @@ RSpec.describe StandardId::VoidWhichBinds::StaffPolicy, type: :void_which_binds 
     expect { enforce(customer, :passwordless, flow: :web_passwordless) }.to raise_error(StandardId::LoginMethodDenied)
   end
 
+  it "admits staff through void_which_binds without consulting the fallback" do
+    fallback = ->(auth_method:) { auth_method != :social }
+    StandardId.config.login_method_policy = StandardId::VoidWhichBinds.staff_policy(
+      staff_predicate: ->(account) { account.staff? }, fallback: fallback
+    )
+
+    expect(enforce(staff, :social, "void_which_binds", flow: :web_social)).to be(true)
+    expect { enforce(customer, :social, "void_which_binds", flow: :web_social) }.to raise_error(StandardId::LoginMethodDenied)
+  end
+
+  it "consults the fallback for staff while enforcement is off" do
+    StandardId.config.social.void_which_binds_require_for_staff = false
+    StandardId.config.login_method_policy = StandardId::VoidWhichBinds.staff_policy(
+      staff_predicate: ->(account) { account.staff? }, fallback: ->(auth_method:) { auth_method != :social }
+    )
+
+    expect { enforce(staff, :social, "void_which_binds", flow: :web_social) }.to raise_error(StandardId::LoginMethodDenied)
+  end
+
   it "is off while void_which_binds_require_for_staff is false" do
     StandardId.config.social.void_which_binds_require_for_staff = false
 

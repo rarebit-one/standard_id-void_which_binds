@@ -237,6 +237,60 @@ RSpec.describe "POST /auth/void_which_binds/events (RFC 8935 SET push)", type: :
       expect(StandardId::VoidWhichBinds::ReceivedEvent.count).to eq(0)
     end
 
+    context "when the failure is on this side, not the SET's (500, retried; never a 400 that is dead-lettered)" do
+      let(:valid_set) { mint_set(event: :session_revoked, toe: now - 5) }
+
+      it "answers a malformed inline JWKS with 500" do
+        configure_void_which_binds!(void_which_binds_jwks: "{not json")
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+        expect(StandardId::VoidWhichBinds::ReceivedEvent.count).to eq(0)
+      end
+
+      it "answers an inline JWKS with the wrong structure with 500" do
+        configure_void_which_binds!(void_which_binds_jwks: JSON.generate(keys: "nope"))
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+      end
+
+      it "answers a fetched JWKS that is HTTP 200 but malformed with 500" do
+        configure_void_which_binds!(void_which_binds_jwks: nil)
+        stub_request(:get, "#{Vwb::ISSUER}/.well-known/jwks.json").to_return(status: 200, body: '{"keys":[{"kty":1}]}')
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+      end
+
+      it "answers a JWKS fetch that times out with 500" do
+        configure_void_which_binds!(void_which_binds_jwks: nil)
+        stub_request(:get, "#{Vwb::ISSUER}/.well-known/jwks.json").to_timeout
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+      end
+
+      it "answers a JWKS endpoint error with 500" do
+        configure_void_which_binds!(void_which_binds_jwks: nil)
+        stub_request(:get, "#{Vwb::ISSUER}/.well-known/jwks.json").to_return(status: 503)
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+      end
+
+      it "answers an unparseable pin with 500" do
+        configure_void_which_binds!(void_which_binds_jwks_pins: ["not-a-thumbprint"])
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+      end
+
+      it "answers an unexpected error while applying with 500, committing nothing" do
+        sign_in_with_void_which_binds(iat: now - 100)
+        Account.find_by!(email: "person@rarebit.one").update!(staff: true)
+        configure_void_which_binds!(void_which_binds_staff_predicate: ->(_account) { raise "host predicate bug" })
+        allow(Rails.error).to receive(:report)
+
+        expect(push_set(mint_set(event: :account_disabled, toe: now - 50))).to have_http_status(:internal_server_error)
+        expect(StandardId::VoidWhichBinds::ReceivedEvent.count).to eq(0)
+      end
+    end
+
     it "answers its own misconfiguration with 500, which moneta retries" do
       configure_void_which_binds!(void_which_binds_issuer: nil)
 

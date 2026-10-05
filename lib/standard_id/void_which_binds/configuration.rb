@@ -125,6 +125,9 @@ module StandardId
         http.open_timeout = OPEN_TIMEOUT
         http.read_timeout = READ_TIMEOUT
         http.start { |h| h.request(request) }
+      rescue Timeout::Error, SystemCallError, SocketError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse,
+             Net::ProtocolError => e
+        raise BrokerUnavailable, "#{uri.host} is unreachable (#{e.class})"
       end
     end
 
@@ -165,12 +168,18 @@ module StandardId
 
         # The pins over the inline JWKS, or over the fetched one.
         # `refresh: true` refetches (rate-limited) when a pinned key is missing.
+        #
+        # A key set that cannot be parsed is this app's problem (its
+        # configuration, or moneta's JWKS endpoint), never the token's, so it
+        # raises ConfigurationError: the SET endpoint answers 500, which moneta
+        # retries, rather than 400 invalid_request, which it dead-letters.
         def pins(refresh: false)
           thumbprints = Configuration.pins
           inline = Configuration.inline_jwks
-          return Jose::Pins.new(inline, thumbprints) if inline
+          return key_set("the inline JWKS (void_which_binds_jwks)") { Jose::Pins.new(inline, thumbprints) } if inline
 
-          Jose::Pins.new(jwks(Configuration.issuer, refresh: refresh), thumbprints)
+          keys = jwks(Configuration.issuer, refresh: refresh)
+          key_set("the fetched JWKS") { Jose::Pins.new(keys, thumbprints) }
         end
 
         # Verify with the cached pins; when the pinned key is not in the cached
@@ -189,12 +198,18 @@ module StandardId
 
         private
 
+        def key_set(what)
+          yield
+        rescue Refusal => e
+          raise ConfigurationError, "#{what} is unusable: #{e.message}"
+        end
+
         def discovery(issuer)
           cached(:discovery, issuer, DISCOVERY_TTL) do
             response = Http.get(issuer + Discovery::PATH)
             raise ConfigurationError, "discovery answered HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
-            doc = Jose.strict_object(response.body, "discovery")
+            doc = key_set("the discovery document") { Jose.strict_object(response.body, "discovery") }
             raise ConfigurationError, "discovered issuer differs from void_which_binds_issuer" unless doc["issuer"] == issuer
 
             doc
@@ -217,7 +232,7 @@ module StandardId
           response = Http.get(issuer + Discovery::JWKS_PATH)
           raise ConfigurationError, "the JWKS answered HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
-          keys = Jose.parse_jwks(response.body)
+          keys = key_set("the fetched JWKS") { Jose.parse_jwks(response.body) }
           @mutex.synchronize do
             @cache[key] = { value: keys, at: monotonic, refreshed_at: refresh ? monotonic : refreshed_at }
           end

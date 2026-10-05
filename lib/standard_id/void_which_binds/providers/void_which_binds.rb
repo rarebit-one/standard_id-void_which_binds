@@ -148,6 +148,8 @@ module StandardId
           yield
         rescue StandardId::VoidWhichBinds::Refusal => e
           raise StandardId::InvalidRequestError, "Void-Which-Binds sign-in refused (#{e.verdict})"
+        rescue StandardId::VoidWhichBinds::BrokerUnavailable => e
+          raise StandardId::InvalidRequestError, "Void-Which-Binds is unavailable: #{e.message}"
         rescue StandardId::VoidWhichBinds::Error => e
           raise StandardId::InvalidRequestError, "Void-Which-Binds is misconfigured: #{e.message}"
         end

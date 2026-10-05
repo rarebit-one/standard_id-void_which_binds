@@ -75,7 +75,7 @@ moneta pushes one SET per cause (`Content-Type: application/secevent+jwt`). The 
 | Refused key, algorithm or signature (for example a pin gap during a rotation) | `400 {"err":"invalid_key"}`. moneta retries |
 | Wrong `iss` / `aud` | `400 invalid_issuer` / `invalid_audience`. moneta retries |
 | Anything else (wrong `typ`, a stale `iat`, a malformed claim, ...) | `400 invalid_request`. moneta dead-letters |
-| This app's misconfiguration or a database failure | `500`. moneta retries; nothing was committed |
+| Anything on this side: misconfiguration, an unusable inline or fetched JWKS, moneta unreachable, a database failure, an unexpected error | `500`. moneta retries; nothing was committed |
 
 The gem applies an event by watermark. Every comparison is between stamps from moneta's monotonic clock, and a tie revokes.
 
@@ -112,7 +112,7 @@ bundle exec rubocop --config .rubocop.yml
 scripts/check-vector-drift.sh                  # spec/vectors vs void-which-binds-go at the pinned ref
 ```
 
-`spec/vectors/oidc` and `spec/vectors/secevent` are verbatim copies of void-which-binds-go's `testvectors/vectors/`, pinned by `spec/vectors/VOID_WHICH_BINDS_GO_REF`. Never edit them by hand: copy them again and bump the pin in the same change.
+`spec/vectors/oidc` and `spec/vectors/secevent` are verbatim copies of void-which-binds-go's `testvectors/vectors/`, pinned by `spec/vectors/VOID_WHICH_BINDS_GO_REF` (currently the signed tag v0.24.0, `3f97570`). Never edit them by hand: copy them again and bump the pin in the same change.
 
 ## License
 
