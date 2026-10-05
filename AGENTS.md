@@ -27,7 +27,7 @@ lib/standard_id/void_which_binds/
   logins.rb          # session creation under the watermark (SESSION_CREATED subscriber)
   receiver.rb        # SET application in one transaction
   staff_policy.rb    # login_method_policy for staff
-  engine.rb          # Rails engine: route, RFC 9207 iss capture, subscriber
+  engine.rb          # Rails engine: route, SESSION_CREATED subscriber
   testing.rb         # test-only token/SET minting for host apps
 lib/standard_id/void_which_binds/events_endpoint.rb               # POST /events (bare Rack endpoint)
 app/models/standard_id/void_which_binds/                            # Subject, Login, ReceivedEvent
@@ -49,7 +49,7 @@ spec/dummy/                                                         # minimal ho
 
 ## Dependencies
 
-- **standard_id** `~> 0.45` (`trusted_for_linking?`, `login_method_policy`, refresh-token auth lineage)
+- **standard_id** `~> 0.46` (core-managed PKCE via `supports_pkce?` and the `callback_iss:` / `code_verifier:` kwargs; `trusted_for_linking?`, `login_method_policy` and the refresh-token auth lineage from 0.45)
 - **rails** / **activesupport** `>= 8.1`, **json** `>= 2.13` (`allow_duplicate_key: false`)
 
 ## Testing

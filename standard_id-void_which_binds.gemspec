@@ -34,10 +34,12 @@ Gem::Specification.new do |spec|
   # `allow_duplicate_key: false`, which the strict JSON parser relies on
   # (checked at boot, see Jose.assert_strict_json!).
   spec.add_dependency "json", ">= 2.13"
-  # The FLOOR is 0.45: this plugin needs Providers::Base#trusted_for_linking?,
-  # `config.login_method_policy` and the refresh-token auth lineage, all new
-  # in 0.45. The CEILING stays loose (`~> 0.45` = `< 1.0`); compatibility above
+  # The FLOOR is 0.46: this plugin relies on core-managed PKCE
+  # (Providers::Base.supports_pkce?) and the `callback_iss:` / `code_verifier:`
+  # kwargs to get_user_info, new in 0.46, as well as on 0.45's
+  # Providers::Base#trusted_for_linking?, `config.login_method_policy` and the
+  # refresh-token auth lineage. The CEILING stays loose (`~> 0.46` = `< 1.0`); compatibility above
   # the floor is enforced by CI's `compat` job against the latest published
   # standard_id (see standard_id-google's gemspec for why a narrow cap failed).
-  spec.add_dependency "standard_id", "~> 0.45"
+  spec.add_dependency "standard_id", "~> 0.46"
 end

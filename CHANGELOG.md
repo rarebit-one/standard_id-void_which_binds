@@ -11,12 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`StandardId::Providers::VoidWhichBinds`** (`void_which_binds`): sign-in with
   an organisation's Void-Which-Binds broker (moneta), per ADR-0023. It uses the
-  authorization code flow with PKCE S256 (the verifier is derived from the
-  server-held nonce), a nonce, `client_secret_basic`, and the callback's
-  RFC 9207 `iss` checked before the code is exchanged. The EdDSA ID token is
-  verified only under pinned RFC 7638 thumbprints, with void-which-binds-go's
-  `oidc.VerifyIDToken` rules. `trusted_for_linking?` is `true` (see the
-  README's warning). Requires standard_id 0.45.
+  authorization code flow with PKCE S256, a nonce, `client_secret_basic`, and
+  the callback's RFC 9207 `iss` checked before the code is exchanged. The
+  EdDSA ID token is verified only under pinned RFC 7638 thumbprints, with
+  void-which-binds-go's `oidc.VerifyIDToken` rules. `trusted_for_linking?` is
+  `true` (see the README's warning). Requires standard_id 0.46.
 - **`StandardId::VoidWhichBinds.staff_policy`**: a `login_method_policy` that
   admits staff accounts only through `void_which_binds`, gated by
   `void_which_binds_require_for_staff` (default `true`). A staff lock the
@@ -49,3 +48,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   void-which-binds-go **v0.24.0** (`3f97570`) by
   `spec/vectors/VOID_WHICH_BINDS_GO_REF` and checked by
   `scripts/check-vector-drift.sh` (CI job `vector-drift`).
+
+### Changed
+
+- **The PKCE verifier and the callback `iss` now come from standard_id core**
+  (0.46's core hook, standard_id#369). The provider declares
+  `supports_pkce? = true`, so core generates a fresh verifier for every
+  sign-in, keeps it in the encrypted pending-requests cookie, and sends the
+  S256 challenge, which `authorization_url` now uses (and refuses to build a
+  URL without). `get_user_info` takes `callback_iss:` and `code_verifier:`:
+  it refuses a callback whose `iss` is missing or is not
+  `void_which_binds_issuer`, refuses a call with no verifier (only the web
+  callback passes one, so the native/API callback stays refused), and sends
+  the verifier in the token request. Removed: the `CallbackIssuerCheck`
+  `before_action` the engine included into the web callback controller,
+  `Current.callback_iss` / `Current.callback_checked`,
+  `Providers::VoidWhichBinds.code_verifier_for` (the nonce-derived HMAC
+  verifier) and `PKCE_KEY_PURPOSE`. Requires standard_id `>= 0.46.0`.
+  **Deploy note:** a sign-in in flight at deploy time was started with the
+  old derived challenge and has no stored verifier, so it fails once and the
+  person needs to retry.
