@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  ci:
+    uses: rarebit-one/.github/.github/workflows/reusable-gem-ci.yml@v2
+    with:
+      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4"]'
+      lint-ruby-version: "4.0.4"
+      # Pass --config explicitly so rubocop skips its .ruby-version
+      # auto-discovery, which fails on Ruby 4.0 with rubocop < 1.82
+      # (KNOWN_RUBIES tops out at 3.5). Mirrors standard_id's bin/rubocop.
+      lint-command: bundle exec rubocop --config .rubocop.yml -f github
+      extra-lint-commands: |
+        gem install bundler-audit
+        bundler-audit check --update
+
+  # Resolve and test against the LATEST PUBLISHED standard_id, ignoring the
+  # committed lockfile. This plugin reaches into standard_id internals, so the
+  # gemspec constraint is a claim that needs verifying — and this job is what
+  # verifies it.
+  #
+  # It exists because the previous approach (a narrow `~> 0.29.0` gemspec cap)
+  # failed silently: standard_id reached 0.32 with no compatibility check and no
+  # plugin release, while the published gem kept an older loose requirement, so
+  # consumers ran the untested combination regardless. A CI failure here reaches
+  # the maintainer before a release; a resolution failure reaches five consumers
+  # after one.
+  compat:
+    name: Compat with latest standard_id
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
+        with:
+          ruby-version: "4.0.4"
+          bundler-cache: false
+
+      - name: Resolve against latest published standard_id
+        run: |
+          set -euo pipefail
+          rm -f Gemfile.lock
+          bundle install --jobs 4
+          # Both parses are anchored so they cannot match this gem's own name
+          # (standard_id-void_which_binds) — "standard_id" must be followed by " (".
+          latest="$(gem list -r --exact standard_id \
+                    | sed -n 's/^standard_id (\([^,)]*\).*/\1/p')"
+          resolved="$(bundle list | sed -n 's/^ *\* standard_id (\(.*\))$/\1/p')"
+          if [ -z "${latest}" ] || [ -z "${resolved}" ]; then
+            echo "::error::could not determine standard_id versions (latest='${latest}' resolved='${resolved}')"
+            exit 1
+          fi
+          echo "latest published: ${latest}"
+          echo "resolved here:    ${resolved}"
+          if [ "${latest}" != "${resolved}" ]; then
+            echo "::error::gemspec constraint excludes the latest published standard_id (${latest}); it resolved ${resolved}. Widen spec.add_dependency \"standard_id\" or this gem cannot be published without capping its consumers."
+            exit 1
+          fi
+
+      - name: Test against it
+        run: bundle exec rspec
+
+  # The golden vectors under spec/vectors/ must equal void-which-binds-go's
+  # testvectors/vectors/ at the commit pinned in spec/vectors/VOID_WHICH_BINDS_GO_REF,
+  # so a hand-edit or a stale copy fails here rather than letting the verifier
+  # silently agree with itself. Plain git (no extra action to pin);
+  # void-which-binds-go is private. This repo is PUBLIC, so the read uses a
+  # ONE-HOUR, READ-ONLY installation token for that one repository (org
+  # release-bot App), never a broad PAT. Fork PRs get no secrets: the token step
+  # is skipped for them and the check is skipped with a warning. (Mirrors
+  # void-which-binds-web's vector-drift job.)
+  vector-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: library-token
+        # Fork and Dependabot PRs get no Actions secrets: skip, and the check warns.
+        if: github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: rarebit-one
+          repositories: void-which-binds-go
+          permission-contents: read
+      - name: diff vectors against void-which-binds-go at the pinned ref
+        env:
+          VOID_WHICH_BINDS_GO_TOKEN: ${{ steps.library-token.outputs.token }}
+        run: |
+          if [ -z "$VOID_WHICH_BINDS_GO_TOKEN" ]; then
+            # Fork PRs get no secrets and cannot read the private void-which-binds-go;
+            # the check still runs on every same-repo PR and on push to main.
+            echo "::warning::no void-which-binds-go token (fork PR?); skipping the vector drift check"
+            exit 0
+          fi
+          scripts/check-vector-drift.sh

@@ -1,0 +1,8 @@
+# void-which-binds-go commit whose testvectors/vectors/ the directories here
+# are copied from, verbatim: oidc/ and secevent/ (ADR-0023). The signed release
+# tag v0.24.0 (its oidc/ and secevent/ vectors are byte-identical to #141,
+# 40dc63b, which this was first copied from). Checked by
+# scripts/check-vector-drift.sh (CI job vector-drift). Never hand-edit a copied
+# vector: re-copy it from void-which-binds-go and bump this pin in the same
+# change.
+3f9757003adcf70cbc1f7e2cea1e697f76106a2c

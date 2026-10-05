@@ -1,0 +1,28 @@
+# frozen_string_literal: true
+
+# Void-Which-Binds (moneta) sign-in for StandardId (ADR-0023).
+#
+# These fields are declared by the standard_id-void_which_binds gem; they do
+# not exist without it in the Gemfile. A field this file does not assign falls
+# back to the ENV variable named after it, upper-cased (standard_id >= 0.42).
+#
+# void_which_binds_client_id switches the provider on; while it is set, the
+# client secret, issuer, org and pins are required (StandardId's boot check).
+StandardId.configure do |config|
+  config.social.void_which_binds_client_id = ENV.fetch("VOID_WHICH_BINDS_CLIENT_ID", nil)
+  config.social.void_which_binds_client_secret = ENV.fetch("VOID_WHICH_BINDS_CLIENT_SECRET", nil)
+  # moneta's public https origin, byte for byte as its tokens spell it.
+  config.social.void_which_binds_issuer = ENV.fetch("VOID_WHICH_BINDS_ISSUER", nil)
+  # The org id ("ed25519:<64 hex>") every ID token's `org` must equal.
+  config.social.void_which_binds_org = ENV.fetch("VOID_WHICH_BINDS_ORG", nil)
+  # RFC 7638 thumbprints of moneta's `assert` key (and `next`, during a
+  # rotation). The JWKS is fetched from the issuer but is never a trust root:
+  # only pinned keys verify.
+  config.social.void_which_binds_jwks_pins = ENV.fetch("VOID_WHICH_BINDS_JWKS_PINS", "").split(",")
+
+  # Staff accounts may sign in ONLY with Void-Which-Binds, and a roster removal
+  # locks them. Uncomment and adapt the predicate to switch it on:
+  #
+  # config.social.void_which_binds_staff_predicate = ->(account) { account.staff? }
+  # config.login_method_policy = StandardId::VoidWhichBinds.staff_policy
+end
