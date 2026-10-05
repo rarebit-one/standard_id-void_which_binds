@@ -1,0 +1,8 @@
+# void-which-binds-go commit whose testvectors/vectors/ the directories here
+# are copied from, verbatim: oidc/ and secevent/ (ADR-0023). A main commit
+# (fix(oidc,secevent): refuse auth_time after iat and a zero toe, #141), not a
+# tag yet: re-pin to v0.24.0 once the library release that carries it is
+# tagged. Checked by scripts/check-vector-drift.sh (CI job vector-drift).
+# Never hand-edit a copied vector: re-copy it from void-which-binds-go and bump
+# this pin in the same change.
+40dc63bb90438ea117aa525b1f96303f12c8d5a5

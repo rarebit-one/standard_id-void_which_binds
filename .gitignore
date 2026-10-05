@@ -1,0 +1,20 @@
+/.bundle/
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/pkg/
+/spec/reports/
+/tmp/
+
+# rspec failure tracking
+.rspec_status
+
+# Git worktrees
+.worktrees/
+
+*.gem
+
+# The dummy app's SQLite database and logs
+/spec/dummy/tmp/
+/spec/dummy/log/
