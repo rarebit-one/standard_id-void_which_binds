@@ -1,0 +1,41 @@
+name: Dependabot auto-merge
+
+# Thin caller: delegates to the org-shared reusable auto-lander in
+# rarebit-one/.github so the landing logic lives in one place.
+# pull_request_target gives the writable token needed to enable auto-merge.
+#
+# The gate below only filters out actors that never participate; the reusable
+# does the strict per-path gating itself (Dependabot semver, engine branch
+# prefixes, and for the maintainer path: actor AND pull_request.user.login
+# both 'jaryl', plus draft == false). Auto-merge only, never auto-approve.
+#
+# This repo is opted into the maintainer path because it has branch protection
+# requiring at least one status check — native auto-merge waits only on checks
+# GitHub has been told are REQUIRED, so on an unprotected repo it would mean
+# "merge on open". See rarebit-one/.github#78.
+#
+# `ready_for_review` is in the types list because the maintainer path requires
+# draft == false: the default type set is opened/reopened/synchronize, so a
+# draft marked ready with no further push would never re-trigger and would sit
+# unarmed until the next commit.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: >-
+      github.actor == 'dependabot[bot]' ||
+      github.actor == 'jaryl'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: rarebit-one/.github/.github/workflows/dependabot-auto-merge.yml@main
+    secrets: inherit
