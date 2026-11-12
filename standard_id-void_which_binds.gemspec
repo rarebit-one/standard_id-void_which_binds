@@ -5,7 +5,7 @@ require_relative "lib/standard_id/void_which_binds/version"
 Gem::Specification.new do |spec|
   spec.name = "standard_id-void_which_binds"
   spec.version = StandardId::VoidWhichBinds::VERSION
-  spec.authors = ["Jaryl Sim"]
+  spec.authors = ["Rarebit One"]
   spec.email   = ["code@jaryl.dev"]
 
   spec.summary = "Void-Which-Binds (moneta) sign-in and SET deprovisioning for the StandardId engine."
