@@ -13,13 +13,12 @@ jobs:
   ci:
     uses: rarebit-one/.github/.github/workflows/reusable-gem-ci.yml@v3
     with:
-      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4"]'
-      # TEMPORARY until this gem moves to Ruby 4.0.9. Hosted ubuntu-latest is
-      # now ubuntu-26.04, where setup-ruby builds only the latest patch of each
-      # series (4.0.9): every Ruby above fails to install there. ubuntu-24.04
-      # still has them all.
+      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4","4.0.9"]'
+      # ubuntu-24.04 because the matrix tests patch releases older than the
+      # newest 4.0.x, and ubuntu-26.04 (now ubuntu-latest) builds only the
+      # newest patch of each series. Drop it if the matrix narrows to 4.0.9.
       runner-label: ubuntu-24.04
-      lint-ruby-version: "4.0.4"
+      lint-ruby-version: "4.0.9"
       # Pass --config explicitly so rubocop skips its .ruby-version
       # auto-discovery, which fails on Ruby 4.0 with rubocop < 1.82
       # (KNOWN_RUBIES tops out at 3.5). Mirrors standard_id's bin/rubocop.
@@ -41,8 +40,7 @@ jobs:
   # after one.
   compat:
     name: Compat with latest standard_id
-    # TEMPORARY: ubuntu-24.04 until Ruby 4.0.9 (no 4.0.4 build on ubuntu-26.04).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,7 +48,7 @@ jobs:
 
       - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
         with:
-          ruby-version: "4.0.4"
+          ruby-version: "4.0.9"
           bundler-cache: false
 
       - name: Resolve against latest published standard_id
