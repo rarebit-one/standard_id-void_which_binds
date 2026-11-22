@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Broker requests honour the host's `StandardId.config.network_wrapper`** (standard_id releases
+  after 0.60.0), given `provider: :void_which_binds`: discovery, the JWKS and the token exchange,
+  so a circuit breaker or tracing span covers them as it covers the other providers. The gem keeps
+  its own HTTP client (the broker may sit on a private address that `StandardId::HttpClient`
+  refuses). A transport error raised inside the wrapper still becomes `BrokerUnavailable`; an
+  error the wrapper raises itself propagates as is. On older standard_id releases there is no such
+  setting, so nothing changes and the `~> 0.46` requirement stays.
 - **`StandardId::Providers::VoidWhichBinds`** (`void_which_binds`): sign-in with
   an organisation's Void-Which-Binds broker (moneta), per ADR-0023. It uses the
   authorization code flow with PKCE S256, a nonce, `client_secret_basic`, and

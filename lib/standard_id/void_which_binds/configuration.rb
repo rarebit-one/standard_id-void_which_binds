@@ -88,10 +88,12 @@ module StandardId
     # verification and short timeouts. Not StandardId::HttpClient: that client
     # refuses private addresses, and an org's broker may well sit on one (a
     # tailnet), while every URL here comes from the host's own configuration,
-    # never from a request.
+    # never from a request. It does honour the host's
+    # `StandardId.config.network_wrapper`, as HttpClient does.
     module Http
       OPEN_TIMEOUT = 5
       READ_TIMEOUT = 10
+      PROVIDER = :void_which_binds
 
       module_function
 
@@ -124,10 +126,24 @@ module StandardId
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER
         http.open_timeout = OPEN_TIMEOUT
         http.read_timeout = READ_TIMEOUT
-        http.start { |h| h.request(request) }
+        with_network_wrapper { http.start { |h| h.request(request) } }
       rescue Timeout::Error, SystemCallError, SocketError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse,
              Net::ProtocolError => e
         raise BrokerUnavailable, "#{uri.host} is unreachable (#{e.class})"
+      end
+
+      # Runs the request through the host's `StandardId.config.network_wrapper`
+      # (standard_id releases after 0.60.0; e.g. a circuit breaker), given
+      # `provider: :void_which_binds`, or directly when there is none. On an
+      # older standard_id the setting does not exist and reading it returns
+      # nil. A transport error raised inside the wrapper still becomes
+      # BrokerUnavailable; an error the wrapper raises itself is the host's
+      # and propagates as is.
+      def with_network_wrapper(&block)
+        wrapper = StandardId.config.network_wrapper
+        return yield unless wrapper.respond_to?(:call)
+
+        wrapper.call(**StandardId::Utils::CallableParameterFilter.filter(wrapper, { provider: PROVIDER }), &block)
       end
     end
 
