@@ -127,6 +127,11 @@ module StandardId
         http.open_timeout = OPEN_TIMEOUT
         http.read_timeout = READ_TIMEOUT
         with_network_wrapper { http.start { |h| h.request(request) } }
+      rescue *provider_unavailable_errors => e
+        # The host's wrapper refused the request (an open circuit): core's own
+        # error, so sign-in takes core's "temporarily unavailable" path.
+        # Re-raised under this provider's name, the refusal as `cause`.
+        raise e.class.new("Void-Which-Binds is temporarily unavailable", provider: PROVIDER)
       rescue Timeout::Error, SystemCallError, SocketError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse,
              Net::ProtocolError => e
         raise BrokerUnavailable, "#{uri.host} is unreachable (#{e.class})"
@@ -134,16 +139,29 @@ module StandardId
 
       # Runs the request through the host's `StandardId.config.network_wrapper`
       # (standard_id releases after 0.60.0; e.g. a circuit breaker), given
-      # `provider: :void_which_binds`, or directly when there is none. On an
-      # older standard_id the setting does not exist and reading it returns
-      # nil. A transport error raised inside the wrapper still becomes
-      # BrokerUnavailable; an error the wrapper raises itself is the host's
-      # and propagates as is.
+      # `provider: :void_which_binds`, or directly when there is none. A
+      # transport error raised inside the wrapper still becomes
+      # BrokerUnavailable.
+      #
+      # standard_id releases with StandardId::NetworkWrapper run it there, and
+      # a refusal by the wrapper itself (an open circuit) comes back as
+      # StandardId::ProviderUnavailableError, which `perform` lets through.
+      # Older releases with the setting call the wrapper here, and its own
+      # error propagates as is; before 0.61 the setting does not exist and
+      # reading it returns nil.
       def with_network_wrapper(&block)
+        return StandardId::NetworkWrapper.run(provider: PROVIDER, &block) if defined?(StandardId::NetworkWrapper)
+
         wrapper = StandardId.config.network_wrapper
         return yield unless wrapper.respond_to?(:call)
 
         wrapper.call(**StandardId::Utils::CallableParameterFilter.filter(wrapper, { provider: PROVIDER }), &block)
+      end
+
+      # StandardId::ProviderUnavailableError where standard_id has it, else
+      # nothing (a `rescue *[]` matches nothing).
+      def provider_unavailable_errors
+        defined?(StandardId::ProviderUnavailableError) ? [StandardId::ProviderUnavailableError] : []
       end
     end
 

@@ -52,6 +52,11 @@ module StandardId
       rescue ConfigurationError => e
         log(:error, "misconfigured: #{e.message}")
         [500, {}, []]
+      rescue *Http.provider_unavailable_errors => e
+        # The host's network_wrapper refused the JWKS fetch (an open circuit):
+        # an outage, not a bug, and moneta retries the 500.
+        log(:error, "moneta is unavailable: #{e.message}")
+        [500, {}, []]
       rescue ActiveRecord::ActiveRecordError => e
         # Nothing was committed (the event is applied in one transaction), so
         # moneta's retry of this 500 applies it in full.
