@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-25
+
 ### Fixed
 
 - **A refusal by the host's `network_wrapper` (an open circuit) no longer turns sign-in into a
@@ -19,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moneta retries), logged as an outage and not reported as an error. Transport errors still
   become `BrokerUnavailable`, and programming errors in the wrapper pass through unchanged. On
   older standard_id releases the wrapper is still called directly and its own error propagates
-  as is; the `~> 0.46` requirement is unchanged.
+  as is; the `~> 0.46` requirement is unchanged. The mapping is feature-detected and takes effect
+  with standard_id >= 0.63.0.
 
 ## [0.1.0] - 2026-11-23
 
