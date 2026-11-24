@@ -128,22 +128,35 @@ module StandardId
         http.read_timeout = READ_TIMEOUT
         with_network_wrapper { http.start { |h| h.request(request) } }
       rescue Timeout::Error, SystemCallError, SocketError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse,
-             Net::ProtocolError => e
+             Net::ProtocolError, *provider_unavailable_errors => e
         raise BrokerUnavailable, "#{uri.host} is unreachable (#{e.class})"
       end
 
       # Runs the request through the host's `StandardId.config.network_wrapper`
       # (standard_id releases after 0.60.0; e.g. a circuit breaker), given
-      # `provider: :void_which_binds`, or directly when there is none. On an
-      # older standard_id the setting does not exist and reading it returns
-      # nil. A transport error raised inside the wrapper still becomes
-      # BrokerUnavailable; an error the wrapper raises itself is the host's
-      # and propagates as is.
+      # `provider: :void_which_binds`, or directly when there is none. A
+      # transport error raised inside the wrapper still becomes
+      # BrokerUnavailable.
+      #
+      # standard_id releases with StandardId::NetworkWrapper run it there, and
+      # an error the wrapper raises itself (an open circuit) comes back as
+      # StandardId::ProviderUnavailableError, which `perform` also turns into
+      # BrokerUnavailable. Older releases with the setting call the wrapper
+      # here, and its own error propagates as is; before 0.61 the setting does
+      # not exist and reading it returns nil.
       def with_network_wrapper(&block)
+        return StandardId::NetworkWrapper.run(provider: PROVIDER, &block) if defined?(StandardId::NetworkWrapper)
+
         wrapper = StandardId.config.network_wrapper
         return yield unless wrapper.respond_to?(:call)
 
         wrapper.call(**StandardId::Utils::CallableParameterFilter.filter(wrapper, { provider: PROVIDER }), &block)
+      end
+
+      # StandardId::ProviderUnavailableError where standard_id has it, else
+      # nothing (a `rescue *[]` matches nothing).
+      def provider_unavailable_errors
+        defined?(StandardId::ProviderUnavailableError) ? [StandardId::ProviderUnavailableError] : []
       end
     end
 

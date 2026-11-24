@@ -124,6 +124,55 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
       }).to have_been_made.once
     end
 
+    context "with the host's network_wrapper" do
+      after { StandardId.config.network_wrapper = nil }
+
+      it "signs in as before when the wrapper runs the request" do
+        providers = []
+        StandardId.config.network_wrapper = lambda do |provider:, &block|
+          providers << provider
+          block.call
+        end
+
+        sign_in_with_void_which_binds
+
+        expect(response).to redirect_to("/")
+        expect(signed_in?).to be(true)
+        expect(providers).to eq([:void_which_binds])
+      end
+
+      it "fails the sign-in as unavailable, not with a 500, when the wrapper refuses the token request" do
+        skip "needs a standard_id with StandardId::NetworkWrapper" unless defined?(StandardId::NetworkWrapper)
+        circuit_open = Class.new(StandardError)
+        StandardId.config.network_wrapper = ->(provider:, &_block) { raise circuit_open, "oauth_#{provider} is open" }
+
+        sign_in_with_void_which_binds
+
+        expect(response.location).to include("/login")
+        expect(flash[:alert]).to include("Void-Which-Binds is unavailable")
+        expect(Account.count).to eq(0)
+        expect(StandardId::BrowserSession.count).to eq(0)
+        expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
+      end
+
+      # The same, with a stand-in for core's NetworkWrapper, so the path is
+      # covered whichever standard_id the bundle resolves.
+      it "maps a refusal reported by core's NetworkWrapper to the unavailable sign-in failure" do
+        refusal = Class.new(StandardId::OAuthError)
+        stub_const("StandardId::ProviderUnavailableError", refusal)
+        stub_const("StandardId::NetworkWrapper", Module.new do
+          define_singleton_method(:run) { |provider:, &_block| raise refusal, "#{provider} is temporarily unavailable" }
+        end)
+
+        sign_in_with_void_which_binds
+
+        expect(response.location).to include("/login")
+        expect(flash[:alert]).to include("Void-Which-Binds is unavailable")
+        expect(StandardId::BrowserSession.count).to eq(0)
+        expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
+      end
+    end
+
     it "refuses a callback without moneta's RFC 9207 iss, before exchanging the code" do
       sign_in_with_void_which_binds(iss: nil)
 

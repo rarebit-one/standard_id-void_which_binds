@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A refusal by the host's `network_wrapper` (an open circuit) no longer turns sign-in into a
+  500.** On a standard_id with `StandardId::NetworkWrapper` (rarebit-one/standard_id#480), broker
+  requests run through it, so an error the wrapper raises itself comes back as
+  `StandardId::ProviderUnavailableError`. `Http.perform` turns that into `BrokerUnavailable`, like a
+  timeout, so the user is sent back to the login page with "Void-Which-Binds is unavailable" and
+  the SET endpoint answers 500, which moneta retries. Transport errors map exactly as before. On
+  older standard_id releases the wrapper is still called directly and its own error propagates
+  as is; the `~> 0.46` requirement is unchanged.
+
 ## [0.1.0] - 2026-11-23
 
 ### Added
