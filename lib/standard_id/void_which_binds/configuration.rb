@@ -129,8 +129,8 @@ module StandardId
         with_network_wrapper { http.start { |h| h.request(request) } }
       rescue *provider_unavailable_errors => e
         # The host's wrapper refused the request (an open circuit): core's own
-        # error, so sign-in takes core's "temporarily unavailable" path (API:
-        # 503). Re-raised under this provider's name, the refusal as `cause`.
+        # error, so sign-in takes core's "temporarily unavailable" path.
+        # Re-raised under this provider's name, the refusal as `cause`.
         raise e.class.new("Void-Which-Binds is temporarily unavailable", provider: PROVIDER)
       rescue Timeout::Error, SystemCallError, SocketError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse,
              Net::ProtocolError => e
