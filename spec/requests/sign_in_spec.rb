@@ -141,7 +141,7 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
         expect(providers).to eq([:void_which_binds])
       end
 
-      it "fails the sign-in as unavailable, not with a 500, when the wrapper refuses the token request" do
+      it "fails the sign-in as temporarily unavailable, not with a 500, when the wrapper refuses the token request" do
         skip "needs a standard_id with StandardId::NetworkWrapper" unless defined?(StandardId::NetworkWrapper)
         circuit_open = Class.new(StandardError)
         StandardId.config.network_wrapper = ->(provider:, &_block) { raise circuit_open, "oauth_#{provider} is open" }
@@ -149,7 +149,7 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
         sign_in_with_void_which_binds
 
         expect(response.location).to include("/login")
-        expect(flash[:alert]).to include("Void-Which-Binds is unavailable")
+        expect(flash[:alert]).to eq("Authentication failed: Void-Which-Binds is temporarily unavailable")
         expect(Account.count).to eq(0)
         expect(StandardId::BrowserSession.count).to eq(0)
         expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
@@ -157,17 +157,17 @@ RSpec.describe "Signing in with Void-Which-Binds", type: :request do
 
       # The same, with a stand-in for core's NetworkWrapper, so the path is
       # covered whichever standard_id the bundle resolves.
-      it "maps a refusal reported by core's NetworkWrapper to the unavailable sign-in failure" do
-        refusal = Class.new(StandardId::OAuthError)
+      it "sends a refusal reported by core's NetworkWrapper down core's sign-in failure path" do
+        refusal = StandIn.provider_unavailable_error
         stub_const("StandardId::ProviderUnavailableError", refusal)
         stub_const("StandardId::NetworkWrapper", Module.new do
-          define_singleton_method(:run) { |provider:, &_block| raise refusal, "#{provider} is temporarily unavailable" }
+          define_singleton_method(:run) { |provider:, &_block| raise refusal.new(provider: provider) }
         end)
 
         sign_in_with_void_which_binds
 
         expect(response.location).to include("/login")
-        expect(flash[:alert]).to include("Void-Which-Binds is unavailable")
+        expect(flash[:alert]).to eq("Authentication failed: Void-Which-Binds is temporarily unavailable")
         expect(StandardId::BrowserSession.count).to eq(0)
         expect(a_request(:post, Vwb::TOKEN_ENDPOINT)).not_to have_been_made
       end

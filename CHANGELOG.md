@@ -11,10 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A refusal by the host's `network_wrapper` (an open circuit) no longer turns sign-in into a
   500.** On a standard_id with `StandardId::NetworkWrapper` (rarebit-one/standard_id#480), broker
-  requests run through it, so an error the wrapper raises itself comes back as
-  `StandardId::ProviderUnavailableError`. `Http.perform` turns that into `BrokerUnavailable`, like a
-  timeout, so the user is sent back to the login page with "Void-Which-Binds is unavailable" and
-  the SET endpoint answers 500, which moneta retries. Transport errors map exactly as before. On
+  requests run through it, so a refusal by the wrapper itself comes back as core's
+  `StandardId::ProviderUnavailableError`. `Http.perform` lets it through, renamed "Void-Which-Binds
+  is temporarily unavailable" (the refusal as `cause`), instead of wrapping it in
+  `BrokerUnavailable`. Sign-in then takes core's path: back to the login page with that message,
+  or 503 `temporarily_unavailable` from the API. The SET endpoint answers it with 500 (which
+  moneta retries), logged as an outage and not reported as an error. Transport errors still
+  become `BrokerUnavailable`, and programming errors in the wrapper pass through unchanged. On
   older standard_id releases the wrapper is still called directly and its own error propagates
   as is; the `~> 0.46` requirement is unchanged.
 

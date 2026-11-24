@@ -127,8 +127,13 @@ module StandardId
         http.open_timeout = OPEN_TIMEOUT
         http.read_timeout = READ_TIMEOUT
         with_network_wrapper { http.start { |h| h.request(request) } }
+      rescue *provider_unavailable_errors => e
+        # The host's wrapper refused the request (an open circuit): core's own
+        # error, so sign-in takes core's "temporarily unavailable" path (API:
+        # 503). Re-raised under this provider's name, the refusal as `cause`.
+        raise e.class.new("Void-Which-Binds is temporarily unavailable", provider: PROVIDER)
       rescue Timeout::Error, SystemCallError, SocketError, IOError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse,
-             Net::ProtocolError, *provider_unavailable_errors => e
+             Net::ProtocolError => e
         raise BrokerUnavailable, "#{uri.host} is unreachable (#{e.class})"
       end
 
@@ -139,11 +144,11 @@ module StandardId
       # BrokerUnavailable.
       #
       # standard_id releases with StandardId::NetworkWrapper run it there, and
-      # an error the wrapper raises itself (an open circuit) comes back as
-      # StandardId::ProviderUnavailableError, which `perform` also turns into
-      # BrokerUnavailable. Older releases with the setting call the wrapper
-      # here, and its own error propagates as is; before 0.61 the setting does
-      # not exist and reading it returns nil.
+      # a refusal by the wrapper itself (an open circuit) comes back as
+      # StandardId::ProviderUnavailableError, which `perform` lets through.
+      # Older releases with the setting call the wrapper here, and its own
+      # error propagates as is; before 0.61 the setting does not exist and
+      # reading it returns nil.
       def with_network_wrapper(&block)
         return StandardId::NetworkWrapper.run(provider: PROVIDER, &block) if defined?(StandardId::NetworkWrapper)
 

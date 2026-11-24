@@ -267,6 +267,21 @@ RSpec.describe "POST /auth/void_which_binds/events (RFC 8935 SET push)", type: :
         expect(push_set(valid_set)).to have_http_status(:internal_server_error)
       end
 
+      it "answers a JWKS fetch the host's network_wrapper refuses (an open circuit) with 500, as an outage, not a bug" do
+        configure_void_which_binds!(void_which_binds_jwks: nil)
+        refusal = StandIn.provider_unavailable_error
+        stub_const("StandardId::ProviderUnavailableError", refusal) unless defined?(StandardId::ProviderUnavailableError)
+        error_class = StandardId::ProviderUnavailableError
+        stub_const("StandardId::NetworkWrapper", Module.new do
+          define_singleton_method(:run) { |provider:, &_block| raise error_class.new(provider: provider) }
+        end)
+        allow(Rails.error).to receive(:report)
+
+        expect(push_set(valid_set)).to have_http_status(:internal_server_error)
+        expect(Rails.error).not_to have_received(:report)
+        expect(a_request(:get, "#{Vwb::ISSUER}/.well-known/jwks.json")).not_to have_been_made
+      end
+
       it "answers a JWKS endpoint error with 500" do
         configure_void_which_binds!(void_which_binds_jwks: nil)
         stub_request(:get, "#{Vwb::ISSUER}/.well-known/jwks.json").to_return(status: 503)

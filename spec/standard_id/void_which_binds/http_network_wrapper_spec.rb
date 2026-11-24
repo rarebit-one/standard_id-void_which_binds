@@ -62,21 +62,22 @@ RSpec.describe StandardId::VoidWhichBinds::Http, "network_wrapper" do
   end
 
   # A stand-in for core's NetworkWrapper / ProviderUnavailableError, so the
-  # mapping is covered whichever standard_id the bundle resolves.
+  # path is covered whichever standard_id the bundle resolves.
   context "on a standard_id whose NetworkWrapper reports a refusal" do
-    let(:refusal_class) { Class.new(StandardId::OAuthError) }
+    let(:refusal_class) { StandIn.provider_unavailable_error }
 
     before do
       stub_const("StandardId::ProviderUnavailableError", refusal_class)
       refusal = refusal_class
       stub_const("StandardId::NetworkWrapper", Module.new do
-        define_singleton_method(:run) { |provider:, &_block| raise refusal, "#{provider} is temporarily unavailable" }
+        define_singleton_method(:run) { |provider:, &_block| raise refusal.new(provider: provider) }
       end)
     end
 
-    it "turns the refusal into BrokerUnavailable, without making the request" do
-      expect { described_class.get(url) }.to raise_error(StandardId::VoidWhichBinds::BrokerUnavailable) { |error|
-        expect(error.message).to eq("broker.example.com is unreachable (StandardId::ProviderUnavailableError)")
+    it "lets core's error through under this provider's name (not BrokerUnavailable), without making the request" do
+      expect { described_class.get(url) }.to raise_error(refusal_class) { |error|
+        expect(error.message).to eq("Void-Which-Binds is temporarily unavailable")
+        expect(error.provider).to eq(:void_which_binds)
         expect(error.cause).to be_a(refusal_class)
       }
       expect(WebMock).not_to have_requested(:get, url)
@@ -88,17 +89,24 @@ RSpec.describe StandardId::VoidWhichBinds::Http, "network_wrapper" do
   context "on a standard_id with StandardId::NetworkWrapper" do
     before { skip "needs a standard_id with StandardId::NetworkWrapper" unless defined?(StandardId::NetworkWrapper) }
 
-    it "turns an error the wrapper raises itself into BrokerUnavailable, without making the request" do
+    it "raises core's ProviderUnavailableError for a refusal by the wrapper, without making the request" do
       circuit_open = Class.new(StandardError)
       StandardId.config.network_wrapper = ->(provider:, &_block) { raise circuit_open, "oauth_#{provider} is open" }
 
-      expect { described_class.get(url) }.to raise_error(StandardId::VoidWhichBinds::BrokerUnavailable) { |error|
-        expect(error.message).to eq("broker.example.com is unreachable (StandardId::ProviderUnavailableError)")
+      expect { described_class.get(url) }.to raise_error(StandardId::ProviderUnavailableError) { |error|
+        expect(error.message).to eq("Void-Which-Binds is temporarily unavailable")
+        expect(error.provider).to eq(:void_which_binds)
+        expect(error.oauth_error_code).to eq(:temporarily_unavailable)
         expect(error.cause).to be_a(StandardId::ProviderUnavailableError)
-        expect(error.cause.provider).to eq(:void_which_binds)
         expect(error.cause.cause).to be_a(circuit_open)
       }
       expect(WebMock).not_to have_requested(:get, url)
+    end
+
+    it "lets a programming error in the wrapper through unchanged" do
+      StandardId.config.network_wrapper = ->(provider:, &_block) { nil.circuit_for(provider) }
+
+      expect { described_class.get(url) }.to raise_error(NoMethodError)
     end
 
     it "keeps a transport error raised inside the wrapper a plain BrokerUnavailable" do
